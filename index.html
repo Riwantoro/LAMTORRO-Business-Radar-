@@ -3,6 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LAMTORRO Business Radar</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
 <style>
 *{box-sizing:border-box}body{margin:0;background:#eff4f1;color:#16342e;font:16px system-ui,sans-serif}header{background:#10342c;color:#fff}header div,main{max-width:1130px;margin:auto;padding:24px clamp(16px,5vw,50px)}header strong{letter-spacing:.18em;color:#b7e9ce}h1{margin:.15em 0;font-size:clamp(2rem,7vw,4rem);letter-spacing:-.06em}header p{color:#cbe3d7}form,article,dialog{background:white;border:1px solid #d5e3da;border-radius:14px;padding:16px}dialog{width:min(540px,95%)}dialog form{display:grid;border:0}dialog::backdrop{background:#10342c99}form,nav,.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:end}nav{margin:18px 0}label{display:grid;gap:5px;font-size:.9rem}button,input,select,textarea{font:inherit;color:inherit;border:1px solid #9fb7ad;background:white;padding:8px;border-radius:7px}button{cursor:pointer;font-weight:650}button[type=submit],[aria-pressed=true]{background:#135e49;color:#fff}button:disabled{opacity:.6}a{color:#0b684e}#cards{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr))}article{overflow-wrap:anywhere}h2{margin:.55em 0}.score{background:#d8efdf;padding:4px 8px;border-radius:5px;font-weight:700}small,footer{color:#475f56}footer{margin-top:20px}[hidden]{display:none!important}
 
@@ -11,6 +12,15 @@ body{font-size:15px;background:#f4f7f5}nav{margin-bottom:8px}nav label{margin-le
 #cards{display:block;overflow:auto;background:#fff;border:1px solid #d5e3da;border-radius:12px}#cards:empty{display:none}
 table{width:100%;min-width:750px;border-collapse:collapse;text-align:left}th,td{padding:12px 14px;vertical-align:top;overflow-wrap:anywhere}th{background:#e6efe9;font-size:.84rem}td{border-top:1px solid #d5e3da}tbody tr:hover{background:#f5faf7}.stack{display:grid;gap:4px;justify-items:start}.score{white-space:nowrap}.badge{padding:3px 7px;border-radius:5px;background:#fff0d3;color:#614115;font-size:.82rem;font-weight:650}.verified{background:#d8efdf;color:#204e39}summary{cursor:pointer;color:#135e49}details .stack{padding-top:6px}:focus-visible{outline:3px solid #318c72;outline-offset:2px}
 @media(max-width:600px){nav label{margin-left:0}#search label{flex:1 1 120px}#search button{width:100%}}
+
+.map-panel{margin:12px 0 16px;border:1px solid #d5e3da;border-radius:14px;overflow:hidden;background:#fff}
+.map-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 14px}.map-head h2{font-size:1rem;margin:0}
+#radarMap{height:clamp(260px,42vh,460px);background:#e5efe9;isolation:isolate}
+#mapNote{margin:0;padding:8px 14px;font-size:.83rem;color:#475f56}
+.google-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.google-actions a{padding:7px 10px;border:1px solid #9eb6aa;border-radius:7px;background:white;font-weight:650;text-decoration:none}
+.radar-marker{display:grid;place-items:center;border-radius:50%;border:2px solid white;background:#125945;color:white;box-shadow:0 1px 6px #16342e80;font-size:17px}
+.radar-marker.sample{background:#63529b}
 </style>
 <header><div><strong>LAMTORRO</strong><h1>Business Radar</h1></div></header>
 <main>
@@ -18,8 +28,14 @@ table{width:100%;min-width:750px;border-collapse:collapse;text-align:left}th,td{
 <label id="city" hidden>Kota<input name="city" maxlength="80" placeholder="Melbourne"></label>
 <label id="country" hidden>Negara<input name="country" maxlength="80" placeholder="Australia"></label>
 <label>Industri<select id="industry" name="industry"></select></label><button type="submit" id="searchButton">Cari bisnis</button></form>
+<div class="google-actions"><a id="searchGoogle" target="_blank" rel="noopener noreferrer">Cari di Google</a><a id="searchMaps" target="_blank" rel="noopener noreferrer">Cari di Google Maps</a></div>
 <nav><button id="discover" aria-pressed="true">Hasil</button><button id="saved" aria-pressed="false">Prospek tersimpan</button><button id="examples">Data contoh</button><label><span><input type="checkbox" id="priority" checked> Urutkan prioritas</span></label></nav>
 <div class="feedback"><p id="feedback" role="status">Pilih industri untuk mulai mencari di Bali.</p><div class="offline" id="offlinePanel"><input type="file" id="baliSnapshot" accept=".json,application/json" hidden><button id="chooseOffline">Gunakan data Bali offline</button><small id="offlineName"></small><button id="clearOffline" hidden>Hapus pilihan</button></div></div>
+<section class="map-panel" aria-labelledby="mapHeading">
+<div class="map-head"><h2 id="mapHeading">Peta prospek</h2><button id="fitMap" disabled>Cakup semua pin</button></div>
+<div id="radarMap" aria-label="Peta interaktif lokasi bisnis"></div>
+<p id="mapNote" role="status">Titik bisnis akan muncul setelah pencarian.</p>
+</section>
 <div id="cards" role="region" aria-label="Tabel prospek" tabindex="0"></div>
 <footer>Data © <a href="https://www.openstreetmap.org/copyright">kontributor OpenStreetMap</a>. Kontak dan cakupan bergantung pada data sumber.</footer>
 </main>
@@ -31,6 +47,7 @@ table{width:100%;min-width:750px;border-collapse:collapse;text-align:left}th,td{
 <div class="actions"><button type="submit">Simpan prospek</button><button type="button" id="qr">Buka QR</button><button type="button" id="close">Tutup</button></div>
 <small>Undang semua pelanggan memberi ulasan jujur. Gunakan tautan yang sama saat menulis tag NFC. Tombol QR mengirim tautan ulasan ke QuickChart untuk membuat PNG.</small>
 <p id="message" role="status"></p></form></dialog>
+<script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module">
 const $ = id => document.getElementById(id)
 const industries = {
@@ -47,8 +64,8 @@ const key = 'lamtorro-radar-v1'
 let records = {}, results = [], view = 'discover', current, searchId = 0
 try { records = JSON.parse(localStorage.getItem(key) || '{}') } catch {}
 const examples = [
-  {id:'demo:1',name:'Kedai Contoh Ubud',region:'Ubud, Bali',industry:'Kafe dan restoran'},
-  {id:'demo:2',name:'Vila Contoh Sanur',region:'Sanur, Bali',industry:'Hotel dan vila',website:'https://example.com'}
+  {id:'demo:1',name:'Kedai Contoh Ubud',region:'Ubud, Bali',lat:-8.509,lon:115.263,industry:'Kafe dan restoran'},
+  {id:'demo:2',name:'Vila Contoh Sanur',region:'Sanur, Bali',lat:-8.692,lon:115.263,industry:'Hotel dan vila',website:'https://example.com'}
 ]
 function safeUrl(value) {
   if (!value) return ''
@@ -111,11 +128,66 @@ function google(lead, maps=false) {
   const q = encodeURIComponent([lead.name,lead.address,lead.region].filter(Boolean).join(' '))
   return maps ? 'https://www.google.com/maps/search/?api=1&query=' + q : 'https://www.google.com/search?q=' + q
 }
+function refreshGoogleLinks() {
+  const fields = $('search').elements
+  const region = fields.scope.value === 'bali' ? 'Bali, Indonesia' : [fields.city.value.trim(),fields.country.value.trim()].filter(Boolean).join(', ')
+  const q = encodeURIComponent([fields.industry.value,region].filter(Boolean).join(' '))
+  $('searchGoogle').href = 'https://www.google.com/search?q=' + q
+  $('searchMaps').href = 'https://www.google.com/maps/search/?api=1&query=' + q
+}
+$('search').addEventListener('input',refreshGoogleLinks)
+refreshGoogleLinks()
+
+let map, markers, bounds
+const industryIcons = ['☕','◆','✦','▪','⚙','✚','◈']
+function fitMarkers() {
+  if (bounds.isValid()) map.fitBounds(bounds,{padding:[35,35],maxZoom:15})
+}
+function initMap() {
+  if (!window.L) {
+    $('radarMap').hidden = true
+    $('mapNote').textContent = 'Peta belum bisa dimuat. Gunakan tautan Google Maps untuk melihat lokasi.'
+    return
+  }
+  const L = window.L
+  map = L.map('radarMap',{scrollWheelZoom:false}).setView([-8.44,115.14],9)
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map)
+  markers = L.layerGroup().addTo(map)
+  $('fitMap').onclick = fitMarkers
+  render()
+}
+function renderMap(leads) {
+  if (!map) return
+  const L = window.L
+  markers.clearLayers()
+  bounds = L.latLngBounds([])
+  let count = 0
+  const located = leads.filter(lead => Number.isFinite(lead.lat) && Number.isFinite(lead.lon) && Math.abs(lead.lat)<=90 && Math.abs(lead.lon)<=180)
+  for (const lead of located.slice(0,300)) {
+    const point = [lead.lat,lead.lon]
+    const symbol = industryIcons[Object.keys(industries).indexOf(lead.industry)] || '•'
+    const icon = L.divIcon({className:'radar-marker' + (lead.source ? '' : ' sample'),html:symbol,iconSize:[30,30],iconAnchor:[15,15]})
+    const popup = element('div','','stack')
+    popup.append(element('strong',lead.name),element('small',lead.source ? lead.address || lead.region : 'Lokasi contoh'),link('Buka Google Maps',google(lead,true)))
+    L.marker(point,{icon,title:lead.name,alt:lead.name}).addTo(markers).bindPopup(popup)
+    bounds.extend(point)
+    count++
+  }
+  $('fitMap').disabled = count === 0
+  if (count) fitMarkers()
+  $('mapNote').textContent = count ? count + ' pin' + (located.length > count ? ' dari ' + located.length + ' lokasi berkoordinat' : ' ditampilkan') + '.' : 'Belum ada prospek berkoordinat untuk ditampilkan.'
+}
+if (document.readyState === 'complete') initMap()
+else window.addEventListener('load',initMap,{once:true})
+
 function render() {
   $('discover').setAttribute('aria-pressed',view === 'discover')
   $('saved').setAttribute('aria-pressed',view === 'saved')
   const leads = view === 'saved' ? Object.values(records) : results.map(lead => ({...lead,...records[lead.id]}))
   if ($('priority').checked) leads.sort((a,b) => Number(Boolean(a.verified || a.website))-Number(Boolean(b.verified || b.website)) || score(b)-score(a))
+  renderMap(leads)
   $('cards').replaceChildren()
   if (leads.length) {
     const table = element('table')
