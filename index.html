@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="id">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LAMTORRO Business Radar</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eff4f1;color:#16342e;font:16px system-ui,sans-serif}header{background:#10342c;color:#fff}header div,main{max-width:1130px;margin:auto;padding:24px clamp(16px,5vw,50px)}header strong{letter-spacing:.18em;color:#b7e9ce}h1{margin:.15em 0;font-size:clamp(2rem,7vw,4rem);letter-spacing:-.06em}header p{color:#cbe3d7}form,article,dialog{background:white;border:1px solid #d5e3da;border-radius:14px;padding:16px}dialog{width:min(540px,95%)}dialog form{display:grid;border:0}dialog::backdrop{background:#10342c99}form,nav,.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:end}nav{margin:18px 0}label{display:grid;gap:5px;font-size:.9rem}button,input,select,textarea{font:inherit;color:inherit;border:1px solid #9fb7ad;background:white;padding:8px;border-radius:7px}button{cursor:pointer;font-weight:650}button[type=submit],[aria-pressed=true]{background:#135e49;color:#fff}button:disabled{opacity:.6}a{color:#0b684e}#cards{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr))}article{overflow-wrap:anywhere}h2{margin:.55em 0}.score{background:#d8efdf;padding:4px 8px;border-radius:5px;font-weight:700}small,footer{color:#475f56}footer{margin-top:20px}[hidden]{display:none!important}
+</style>
+<header><div><strong>LAMTORRO</strong><h1>Business Radar</h1><p>Temukan bisnis, periksa situsnya, dan siapkan penawaran.</p></div></header>
+<main>
+<form id="search"><label>Wilayah<select name="scope" id="scope"><option value="bali">Seluruh Bali</option><option value="global">Global</option></select></label>
+<label id="city" hidden>Kota<input name="city" maxlength="80" placeholder="Melbourne"></label>
+<label id="country" hidden>Negara<input name="country" maxlength="80" placeholder="Australia"></label>
+<label>Industri<select id="industry" name="industry"></select></label><button type="submit" id="searchButton">Cari bisnis</button></form>
+<nav><button id="discover" aria-pressed="true">Hasil</button><button id="saved" aria-pressed="false">Prospek tersimpan</button><button id="examples">Data contoh</button><label><span><input type="checkbox" id="priority" checked> Urutkan prioritas</span></label></nav>
+<p id="feedback" role="status">Pilih industri untuk mulai mencari di Bali.</p><div id="cards"></div>
+<footer>Data © <a href="https://www.openstreetmap.org/copyright">kontributor OpenStreetMap</a>. Kontak dan cakupan bergantung pada data sumber.</footer>
+</main>
+<dialog id="detail"><form id="crmForm"><h2 id="business"></h2>
+<label>Tahap<select name="stage"><option>Baru</option><option>Verifikasi</option><option>Demo siap</option><option>Dihubungi</option><option>Klien</option><option>Ditutup</option></select></label>
+<label>Situs resmi yang sudah dicek<input type="url" name="verified" placeholder="https://"></label>
+<label>Catatan tindak lanjut<textarea name="notes" maxlength="1500"></textarea></label>
+<label>Tautan ulasan Google resmi<input name="review" type="url" placeholder="https://g.page/r/…/review"></label>
+<div class="actions"><button type="submit">Simpan prospek</button><button type="button" id="qr">Buka QR</button><button type="button" id="close">Tutup</button></div>
+<small>Undang semua pelanggan memberi ulasan jujur. Gunakan tautan yang sama saat menulis tag NFC. Tombol QR mengirim tautan ulasan ke QuickChart untuk membuat PNG.</small>
+<p id="message" role="status"></p></form></dialog>
+<script type="module">
+const $ = id => document.getElementById(id)
+const industries = {
+  'Kafe dan restoran': ['amenity','cafe|restaurant|fast_food'],
+  'Hotel dan vila': ['tourism','hotel|guest_house|villa|resort|apartment'],
+  'Salon dan spa': ['shop','beauty|hairdresser|massage'],
+  'Ritel': ['shop','clothes|gift|convenience|supermarket'],
+  'Bengkel': ['shop','car_repair|motorcycle_repair|tyres'],
+  'Klinik': ['amenity','clinic|dentist|doctors'],
+  'Laundry': ['shop','laundry|dry_cleaning']
+}
+for (const name of Object.keys(industries)) $('industry').add(new Option(name))
+const key = 'lamtorro-radar-v1'
+let records = {}, results = [], view = 'discover', current, searchId = 0
+try { records = JSON.parse(localStorage.getItem(key) || '{}') } catch {}
+const examples = [
+  {id:'demo:1',name:'Kedai Contoh Ubud',region:'Ubud, Bali',industry:'Kafe dan restoran'},
+  {id:'demo:2',name:'Vila Contoh Sanur',region:'Sanur, Bali',industry:'Hotel dan vila',website:'https://example.com'}
+]
+function safeUrl(value) {
+  if (!value) return ''
+  try {
+    const url = new URL(value.includes('://') ? value : 'https://' + value)
+    if (['https:','http:'].includes(url.protocol) && url.hostname.includes('.') && !url.username && !url.password) return url.href
+  } catch {}
+  return ''
+}
+function isProfile(url) {
+  return /(^|\.)(facebook\.com|instagram\.com|tiktok\.com|linktr\.ee|wa\.me|business\.site|google\.com|booking\.com|tripadvisor\.com)$/.test(new URL(url).hostname)
+}
+function fromOSM(item, industry, region) {
+  const tags = item.tags
+  const url = safeUrl(tags['contact:website'] || tags.website || tags.url)
+  return {id:item.type + ':' + item.id,name:tags.name,industry,region,
+    source:'https://www.openstreetmap.org/' + item.type + '/' + item.id,
+    address:tags['addr:full'] || [tags['addr:street'],tags['addr:housenumber'],tags['addr:city']].filter(Boolean).join(' '),
+    lat:item.lat ?? item.center?.lat, lon:item.lon ?? item.center?.lon,
+    website:url && !isProfile(url) ? url : '', profile:url && isProfile(url) ? url : '',
+    phone:tags['contact:phone'] || tags.phone, email:tags['contact:email'] || tags.email,
+    whatsapp:tags['contact:whatsapp'] || tags.whatsapp,
+    instagram:safeUrl(tags['contact:instagram'] || tags.instagram),
+    facebook:safeUrl(tags['contact:facebook'] || tags.facebook)}
+}
+function element(tag,text='',className='') {
+  const node = document.createElement(tag)
+  node.textContent = text
+  node.className = className
+  return node
+}
+function link(label,href) {
+  const node = element('a',label)
+  node.href = href
+  node.target = '_blank'
+  node.rel = 'noopener noreferrer'
+  return node
+}
+function button(label,handle) {
+  const node = element('button',label)
+  node.onclick = handle
+  return node
+}
+function contacts(lead) {
+  const entries = []
+  const wa = (lead.whatsapp || '').trim()
+  if (/^https:\/\/wa\.me\/[1-9]\d{7,14}\/?$/.test(wa)) entries.push(['WhatsApp',wa])
+  else if (/^\+?[1-9][\d ()-]{7,20}$/.test(wa)) {
+    const digits = wa.replace(/\D/g,'')
+    if (digits.length >= 8 && digits.length <= 15) entries.push(['WhatsApp','https://wa.me/' + digits])
+  }
+  if (/^[+\d ().-]{6,30}$/.test(lead.phone || '')) entries.push([lead.phone,'tel:' + lead.phone.replace(/[^+\d]/g,'')])
+  if (/^[^\s@?&#]+@[^\s@?&#]+\.[^\s@?&#]+$/.test(lead.email || '')) entries.push([lead.email,'mailto:' + lead.email])
+  return entries
+}
+function score(lead) {
+  return (lead.verified ? 0 : lead.website ? 20 : 55) + (contacts(lead).length ? 25 : 0) + (lead.address ? 10 : 0) + (lead.profile || lead.instagram || lead.facebook ? 10 : 0)
+}
+function google(lead, maps=false) {
+  const q = encodeURIComponent([lead.name,lead.address,lead.region].filter(Boolean).join(' '))
+  return maps ? 'https://www.google.com/maps/search/?api=1&query=' + q : 'https://www.google.com/search?q=' + q
+}
+function render() {
+  $('discover').setAttribute('aria-pressed',view === 'discover')
+  $('saved').setAttribute('aria-pressed',view === 'saved')
+  const leads = view === 'saved' ? Object.values(records) : results.map(lead => ({...lead,...records[lead.id]}))
+  if ($('priority').checked) leads.sort((a,b) => Number(Boolean(a.verified || a.website))-Number(Boolean(b.verified || b.website)) || score(b)-score(a))
+  $('cards').replaceChildren()
+  for (const lead of leads) {
+    const card = element('article')
+    card.append(element('span',score(lead) + '/100','score'),element('h2',lead.name),element('small',lead.industry + ' · ' + (lead.address || lead.region)))
+    card.append(element('p',lead.verified ? 'Situs resmi sudah dicek' : lead.website ? 'Tautan situs perlu dicek' : 'Situs belum ditemukan di sumber'))
+    const evidence = element('p','','actions')
+    if (lead.verified || lead.website) evidence.append(link('Buka situs',lead.verified || lead.website))
+    for (const [name,url] of [...contacts(lead),['Instagram',lead.instagram],['Facebook',lead.facebook],['Profil publik',lead.profile]]) if (url) evidence.append(link(name,url))
+    if (lead.source) evidence.append(link('Sumber OSM',lead.source))
+    else evidence.append(element('small','Data fiktif'))
+    const checks = element('p','','actions')
+    checks.append(link('Cari situs & kontak',google(lead)),link('Cek Maps & ulasan',google(lead,true)))
+    if (Number.isFinite(lead.lat) && Number.isFinite(lead.lon)) checks.append(link('Lokasi OSM','https://www.openstreetmap.org/#map=17/' + lead.lat + '/' + lead.lon))
+    const actions = element('div','','actions')
+    actions.append(button(records[lead.id] ? 'CRM · ' + lead.stage : 'Simpan prospek',() => edit(lead)),button('Unduh demo situs',() => downloadDemo(lead)))
+    card.append(evidence,checks,actions)
+    $('cards').append(card)
+  }
+  $('feedback').textContent = view === 'saved' ? leads.length + ' prospek tersimpan di browser.' : leads.length ? leads.length + (leads[0].source ? ' bisnis dari OpenStreetMap.' : ' bisnis contoh.') : 'Belum ada hasil.'
+}
+function edit(lead) {
+  current = lead
+  $('business').textContent = lead.name
+  $('message').textContent = ''
+  for (const field of ['stage','verified','notes','review']) $('crmForm').elements[field].value = lead[field] || (field === 'stage' ? 'Baru' : '')
+  $('detail').showModal()
+}
+function reviewUrl(value) {
+  const url = safeUrl(value.trim())
+  if (!url || !url.startsWith('https://')) return ''
+  const parsed = new URL(url)
+  if ((parsed.hostname === 'g.page' && /^\/r\/[^/]+\/review\/?$/.test(parsed.pathname))
+      || (['search.google.com','www.google.com'].includes(parsed.hostname) && parsed.pathname === '/local/writereview' && parsed.searchParams.has('placeid'))
+      || (parsed.hostname === 'maps.app.goo.gl' && /^\/[a-z0-9]+\/?$/i.test(parsed.pathname))) return url
+  return ''
+}
+$('crmForm').onsubmit = event => {
+  event.preventDefault()
+  const fields = Object.fromEntries(new FormData(event.currentTarget))
+  const verified = safeUrl(fields.verified.trim())
+  const review = reviewUrl(fields.review)
+  if ((fields.verified && (!verified || isProfile(verified))) || (fields.review && !review)) {
+    $('message').textContent = 'Periksa URL situs resmi dan tautan ulasan Google.'; return
+  }
+  const next = {...records,[current.id]:{...current,...fields,verified,review}}
+  try { localStorage.setItem(key,JSON.stringify(next)) }
+  catch { $('message').textContent = 'Browser tidak dapat menyimpan prospek.'; return }
+  records = next
+  $('detail').close()
+  render()
+}
+$('close').onclick = () => $('detail').close()
+$('qr').onclick = () => {
+  const url = reviewUrl($('crmForm').elements.review.value)
+  if (!url) { $('message').textContent = 'Masukkan tautan ulasan resmi dari Google Business Profile.'; return }
+  $('message').textContent = ''
+  window.open('https://quickchart.io/qr?size=600&text=' + encodeURIComponent(url),'_blank','noopener,noreferrer')
+}
+function downloadDemo(lead) {
+  const doc = document.implementation.createHTMLDocument(lead.name)
+  doc.documentElement.lang = 'id'
+  const charset = doc.createElement('meta')
+  charset.charset = 'utf-8'
+  const viewport = doc.createElement('meta')
+  viewport.name = 'viewport'
+  viewport.content = 'width=device-width,initial-scale=1'
+  const style = doc.createElement('style')
+  style.textContent = 'body{margin:0;background:#12382e;color:white;font:18px system-ui}main{max-width:740px;margin:auto;padding:12vh 24px}h1{font-size:clamp(2.5rem,8vw,5rem);line-height:1}a{display:inline-block;margin:6px 8px 6px 0;background:#caf1d6;color:#143527;padding:12px 18px;border-radius:8px}'
+  doc.head.prepend(charset,viewport,style)
+  const main = element('main')
+  main.append(element('small','PRATINJAU KONSEP'),element('h1',lead.name),element('p',lead.industry + ' · ' + (lead.address || lead.region)),link('Temukan lokasi',google(lead,true)))
+  for (const [name,url] of contacts(lead)) main.append(link(name,url))
+  if (lead.review) main.append(link('Bagikan pengalaman di Google',lead.review))
+  doc.body.append(main)
+  const url = URL.createObjectURL(new Blob(['<!doctype html>\n' + doc.documentElement.outerHTML],{type:'text/html;charset=utf-8'}))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = (lead.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'bisnis') + '-demo.html'
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url),5000)
+}
+$('scope').onchange = () => {
+  const global = $('scope').value === 'global'
+  for (const name of ['city','country']) {
+    $(name).hidden = !global
+    $('search').elements[name].required = global
+  }
+}
+async function fetchJson(url, timeout=25000) {
+  const response = await fetch(url,{signal:AbortSignal.timeout(timeout),credentials:'omit'})
+  if (!response.ok) throw Error('HTTP ' + response.status)
+  return response.json()
+}
+const placeCache = new Map()
+async function cityArea(city,country) {
+  const key = JSON.stringify([city.toLowerCase(),country.toLowerCase()])
+  if (placeCache.has(key)) return placeCache.get(key)
+  const params = new URLSearchParams({city,country,format:'jsonv2',limit:'5'})
+  const places = await fetchJson('https://nominatim.openstreetmap.org/search?' + params,12000)
+  const place = places.find(p => p.osm_type === 'relation' && p.category === 'boundary' && p.type === 'administrative')
+  if (!place || !Number.isSafeInteger(Number(place.osm_id))) throw Error('Batas kota belum ditemukan. Coba nama kota administratif lain.')
+  const area = 3600000000 + Number(place.osm_id)
+  placeCache.set(key,area)
+  return area
+}
+$('search').onsubmit = async event => {
+  event.preventDefault()
+  const data = Object.fromEntries(new FormData(event.currentTarget))
+  const city = data.city.trim(), country = data.country.trim()
+  if (data.scope === 'global' && !(city && country)) { $('feedback').textContent = 'Masukkan kota dan negara.'; return }
+  const id = ++searchId
+  $('searchButton').disabled = true
+  view = 'discover'
+  results = []
+  render()
+  $('feedback').textContent = 'Sedang mencari bisnis…'
+  try {
+    const bali = data.scope === 'bali'
+    const area = bali ? 'area["ISO3166-2"="ID-BA"]["boundary"="administrative"]' : 'area(' + await cityArea(city,country) + ')'
+    const [tag,values] = industries[data.industry]
+    const query = '[out:json][timeout:20];' + area + '->.region;nwr(area.region)["name"]["' + tag + '"~"^(' + values + ')$"];out center 1200;'
+    const found = await fetchJson('https://overpass.kumi.systems/api/interpreter?' + new URLSearchParams({data:query}))
+    if (id !== searchId) return
+    if (found.remark || !Array.isArray(found.elements)) throw Error('Sumber mengembalikan hasil tidak lengkap.')
+    results = found.elements.filter(item => item.tags?.name).map(item => fromOSM(item,data.industry,bali ? 'Bali, Indonesia' : city + ', ' + country))
+    render()
+    if (results.length === 1200) $('feedback').textContent += ' Batas 1.200 hasil tercapai.'
+  } catch (error) {
+    if (id === searchId) $('feedback').textContent = 'Pencarian gagal. ' + error.message + ' Coba lagi atau pakai Data contoh.'
+  } finally { $('searchButton').disabled = false }
+}
+$('examples').onclick = () => { searchId++; results = examples; view = 'discover'; render() }
+$('discover').onclick = () => { view = 'discover'; render() }
+$('saved').onclick = () => { searchId++; view = 'saved'; render() }
+$('priority').onchange = render
+</script>
+</html>
