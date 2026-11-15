@@ -27,3 +27,16 @@ Buka http://127.0.0.1:4173. Pilih **Data contoh** untuk mencoba tanpa internet. 
 Skor menjumlahkan status situs (0–55), kontak langsung (25), alamat (10), dan profil publik (10). Data OSM yang kosong perlu diperiksa sebelum menyimpulkan bahwa situs atau kontak tidak tersedia. Pencarian dibatasi hingga 1.200 entri per industri dan wilayah. Kelengkapan situs dan kontak bergantung pada pemetaan OpenStreetMap. Mode Global bergantung pada tersedianya batas administratif kota di Nominatim dan Overpass.
 
 Versi awal memakai HTML, CSS, dan JavaScript tanpa dependensi. Astryx, Scrapling, audit otomatis ulasan dan foto, hosting demo, dan sinkronisasi CRM belum terintegrasi. Repositori berisi kode dan data contoh fiktif. Data CRM tersimpan di browser.
+
+## Pencarian Bali saat Overpass gagal
+
+Buat berkas data satu kali dengan Python 3 dan ekstrak OpenStreetMap. Unduhan Geofabrik berukuran sekitar 168 MB.
+
+```sh
+python3 -m venv .radar-venv
+.radar-venv/bin/python -m pip install 'osmium>=4,<5'
+curl -fL https://download.geofabrik.de/asia/indonesia/nusa-tenggara-latest.osm.pbf -o /tmp/nusa-tenggara.osm.pbf
+.radar-venv/bin/python build_bali_snapshot.py /tmp/nusa-tenggara.osm.pbf --output /tmp/bali-businesses.json
+```
+
+Di aplikasi, pilih **Seluruh Bali**, pilih berkas `/tmp/bali-businesses.json` di **Data Bali offline**, pilih industri, lalu klik **Cari bisnis**. Aplikasi membaca berkas di browser dan pencarian ini tidak menghubungi Overpass. Gunakan ekstrak yang sudah dipotong sesuai batas Bali bila perlu ketepatan administratif. Pembuat berkas memakai kotak koordinat sekitar Bali dan hanya menyertakan titik serta bangunan dengan kategori dan nama yang sesuai. Cakupan mengikuti ekstrak sumber. Data © kontributor OpenStreetMap, tersedia menurut ODbL.
