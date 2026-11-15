@@ -197,10 +197,31 @@ $('scope').onchange = () => {
     $('search').elements[name].required = global
   }
 }
-async function fetchJson(url, timeout=25000) {
-  const response = await fetch(url,{signal:AbortSignal.timeout(timeout),credentials:'omit'})
+async function fetchJson(url, timeout=25000, options={}) {
+  const response = await fetch(url,{...options,signal:AbortSignal.timeout(timeout),credentials:'omit'})
   if (!response.ok) throw Error('HTTP ' + response.status)
   return response.json()
+}
+const overpassEndpoints = [
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass-api.de/api/interpreter'
+]
+async function searchOverpass(query, id) {
+  for (const [index, endpoint] of overpassEndpoints.entries()) {
+    if (id !== searchId) return null
+    if (index) $('feedback').textContent = 'Mencoba server OpenStreetMap cadangan…'
+    try {
+      const data = await fetchJson(endpoint, 22000, {
+        method: 'POST',
+        body: new URLSearchParams({data: query})
+      })
+      if (!Array.isArray(data.elements) || data.remark) throw Error('Respons Overpass tidak lengkap')
+      return data
+    } catch (error) {
+      console.warn('Pencarian Overpass gagal', endpoint, error)
+    }
+  }
+  throw Error('Server pencarian OpenStreetMap sedang tidak dapat dihubungi. Coba lagi beberapa saat.')
 }
 const placeCache = new Map()
 async function cityArea(city,country) {
@@ -230,14 +251,13 @@ $('search').onsubmit = async event => {
     const area = bali ? 'area["ISO3166-2"="ID-BA"]["boundary"="administrative"]' : 'area(' + await cityArea(city,country) + ')'
     const [tag,values] = industries[data.industry]
     const query = '[out:json][timeout:20];' + area + '->.region;nwr(area.region)["name"]["' + tag + '"~"^(' + values + ')$"];out center 1200;'
-    const found = await fetchJson('https://overpass.kumi.systems/api/interpreter?' + new URLSearchParams({data:query}))
+    const found = await searchOverpass(query, id)
     if (id !== searchId) return
-    if (found.remark || !Array.isArray(found.elements)) throw Error('Sumber mengembalikan hasil tidak lengkap.')
     results = found.elements.filter(item => item.tags?.name).map(item => fromOSM(item,data.industry,bali ? 'Bali, Indonesia' : city + ', ' + country))
     render()
     if (results.length === 1200) $('feedback').textContent += ' Batas 1.200 hasil tercapai.'
   } catch (error) {
-    if (id === searchId) $('feedback').textContent = 'Pencarian gagal. ' + error.message + ' Coba lagi atau pakai Data contoh.'
+    if (id === searchId) $('feedback').textContent = 'Pencarian gagal. ' + (error.name === 'TimeoutError' || error instanceof TypeError ? 'Layanan pencarian lokasi belum merespons. Coba lagi beberapa saat.' : error.message)
   } finally { $('searchButton').disabled = false }
 }
 $('examples').onclick = () => { searchId++; results = examples; view = 'discover'; render() }
