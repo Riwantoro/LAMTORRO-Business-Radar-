@@ -5,16 +5,22 @@
 <title>LAMTORRO Business Radar</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#eff4f1;color:#16342e;font:16px system-ui,sans-serif}header{background:#10342c;color:#fff}header div,main{max-width:1130px;margin:auto;padding:24px clamp(16px,5vw,50px)}header strong{letter-spacing:.18em;color:#b7e9ce}h1{margin:.15em 0;font-size:clamp(2rem,7vw,4rem);letter-spacing:-.06em}header p{color:#cbe3d7}form,article,dialog{background:white;border:1px solid #d5e3da;border-radius:14px;padding:16px}dialog{width:min(540px,95%)}dialog form{display:grid;border:0}dialog::backdrop{background:#10342c99}form,nav,.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:end}nav{margin:18px 0}label{display:grid;gap:5px;font-size:.9rem}button,input,select,textarea{font:inherit;color:inherit;border:1px solid #9fb7ad;background:white;padding:8px;border-radius:7px}button{cursor:pointer;font-weight:650}button[type=submit],[aria-pressed=true]{background:#135e49;color:#fff}button:disabled{opacity:.6}a{color:#0b684e}#cards{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr))}article{overflow-wrap:anywhere}h2{margin:.55em 0}.score{background:#d8efdf;padding:4px 8px;border-radius:5px;font-weight:700}small,footer{color:#475f56}footer{margin-top:20px}[hidden]{display:none!important}
+
+header div,main{max-width:1360px;padding:16px clamp(14px,4vw,40px)}header strong{font-size:.75rem}h1{font-size:clamp(1.7rem,4vw,2.5rem);margin:.1em 0}
+body{font-size:15px;background:#f4f7f5}nav{margin-bottom:8px}nav label{margin-left:auto}.feedback{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:12px 0}.feedback p{margin:0}.offline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#cards{display:block;overflow:auto;background:#fff;border:1px solid #d5e3da;border-radius:12px}#cards:empty{display:none}
+table{width:100%;min-width:750px;border-collapse:collapse;text-align:left}th,td{padding:12px 14px;vertical-align:top;overflow-wrap:anywhere}th{background:#e6efe9;font-size:.84rem}td{border-top:1px solid #d5e3da}tbody tr:hover{background:#f5faf7}.stack{display:grid;gap:4px;justify-items:start}.score{white-space:nowrap}.badge{padding:3px 7px;border-radius:5px;background:#fff0d3;color:#614115;font-size:.82rem;font-weight:650}.verified{background:#d8efdf;color:#204e39}summary{cursor:pointer;color:#135e49}details .stack{padding-top:6px}:focus-visible{outline:3px solid #318c72;outline-offset:2px}
+@media(max-width:600px){nav label{margin-left:0}#search label{flex:1 1 120px}#search button{width:100%}}
 </style>
-<header><div><strong>LAMTORRO</strong><h1>Business Radar</h1><p>Temukan bisnis, periksa situsnya, dan siapkan penawaran.</p></div></header>
+<header><div><strong>LAMTORRO</strong><h1>Business Radar</h1></div></header>
 <main>
 <form id="search"><label>Wilayah<select name="scope" id="scope"><option value="bali">Seluruh Bali</option><option value="global">Global</option></select></label>
 <label id="city" hidden>Kota<input name="city" maxlength="80" placeholder="Melbourne"></label>
 <label id="country" hidden>Negara<input name="country" maxlength="80" placeholder="Australia"></label>
 <label>Industri<select id="industry" name="industry"></select></label><button type="submit" id="searchButton">Cari bisnis</button></form>
 <nav><button id="discover" aria-pressed="true">Hasil</button><button id="saved" aria-pressed="false">Prospek tersimpan</button><button id="examples">Data contoh</button><label><span><input type="checkbox" id="priority" checked> Urutkan prioritas</span></label></nav>
-<div id="offlinePanel"><label>Data Bali offline<input type="file" id="baliSnapshot" accept=".json,application/json"></label></div>
-<p id="feedback" role="status">Pilih industri untuk mulai mencari di Bali.</p><div id="cards"></div>
+<div class="feedback"><p id="feedback" role="status">Pilih industri untuk mulai mencari di Bali.</p><div class="offline" id="offlinePanel"><input type="file" id="baliSnapshot" accept=".json,application/json" hidden><button id="chooseOffline">Gunakan data Bali offline</button><small id="offlineName"></small><button id="clearOffline" hidden>Hapus pilihan</button></div></div>
+<div id="cards" role="region" aria-label="Tabel prospek" tabindex="0"></div>
 <footer>Data © <a href="https://www.openstreetmap.org/copyright">kontributor OpenStreetMap</a>. Kontak dan cakupan bergantung pada data sumber.</footer>
 </main>
 <dialog id="detail"><form id="crmForm"><h2 id="business"></h2>
@@ -111,22 +117,48 @@ function render() {
   const leads = view === 'saved' ? Object.values(records) : results.map(lead => ({...lead,...records[lead.id]}))
   if ($('priority').checked) leads.sort((a,b) => Number(Boolean(a.verified || a.website))-Number(Boolean(b.verified || b.website)) || score(b)-score(a))
   $('cards').replaceChildren()
-  for (const lead of leads) {
-    const card = element('article')
-    card.append(element('span',score(lead) + '/100','score'),element('h2',lead.name),element('small',lead.industry + ' · ' + (lead.address || lead.region)))
-    card.append(element('p',lead.verified ? 'Situs resmi sudah dicek' : lead.website ? 'Tautan situs perlu dicek' : 'Situs belum ditemukan di sumber'))
-    const evidence = element('p','','actions')
-    if (lead.verified || lead.website) evidence.append(link('Buka situs',lead.verified || lead.website))
-    for (const [name,url] of [...contacts(lead),['Instagram',lead.instagram],['Facebook',lead.facebook],['Profil publik',lead.profile]]) if (url) evidence.append(link(name,url))
-    if (lead.source) evidence.append(link('Sumber OSM',lead.source))
-    else evidence.append(element('small','Data fiktif'))
-    const checks = element('p','','actions')
-    checks.append(link('Cari situs & kontak',google(lead)),link('Cek Maps & ulasan',google(lead,true)))
-    if (Number.isFinite(lead.lat) && Number.isFinite(lead.lon)) checks.append(link('Lokasi OSM','https://www.openstreetmap.org/#map=17/' + lead.lat + '/' + lead.lon))
-    const actions = element('div','','actions')
-    actions.append(button(records[lead.id] ? 'CRM · ' + lead.stage : 'Simpan prospek',() => edit(lead)),button('Unduh demo situs',() => downloadDemo(lead)))
-    card.append(evidence,checks,actions)
-    $('cards').append(card)
+  if (leads.length) {
+    const table = element('table')
+    table.setAttribute('aria-label','Daftar prospek bisnis')
+    const header = table.createTHead().insertRow()
+    for (const label of ['Bisnis','Wilayah','Status situs','Kontak publik','Skor','Tindakan']) {
+      const cell = element('th',label)
+      cell.scope = 'col'
+      header.append(cell)
+    }
+    const body = table.createTBody()
+    for (const lead of leads) {
+      const row = body.insertRow()
+      const business = element('div','','stack')
+      business.append(element('strong',lead.name),element('small',lead.industry))
+      if (!lead.source) business.append(element('small','Data fiktif'))
+      const location = element('div','','stack')
+      location.append(element('span',lead.region))
+      if (lead.address) location.append(element('small',lead.address))
+      const website = element('div','','stack')
+      const status = lead.verified ? 'Terverifikasi' : lead.website ? 'Tautan perlu dicek' : lead.profile || lead.instagram || lead.facebook ? 'Profil publik ditemukan' : 'Belum ditemukan di sumber'
+      website.append(element('span',status,'badge' + (lead.verified ? ' verified' : '')))
+      if (lead.verified || lead.website) website.append(link('Buka situs',lead.verified || lead.website))
+      const publicContacts = element('div','','stack')
+      for (const [name,url] of [...contacts(lead),['Instagram',lead.instagram],['Facebook',lead.facebook],['Profil publik',lead.profile]]) {
+        if (url) publicContacts.append(link(name,url))
+      }
+      if (!publicContacts.childElementCount) publicContacts.append(element('small','Belum tercantum'))
+      const actions = element('div','','stack')
+      actions.append(button(records[lead.id] ? 'CRM · ' + lead.stage : 'Simpan prospek',() => edit(lead)))
+      const details = element('details')
+      const links = element('div','','stack')
+      links.append(link('Cari situs & kontak',google(lead)),link('Cek Maps & ulasan',google(lead,true)))
+      if (lead.source) links.append(link('Sumber OpenStreetMap',lead.source))
+      if (Number.isFinite(lead.lat) && Number.isFinite(lead.lon)) links.append(link('Lokasi OSM','https://www.openstreetmap.org/#map=17/' + lead.lat + '/' + lead.lon))
+      links.append(button('Unduh demo situs',() => downloadDemo(lead)))
+      details.append(element('summary','Detail dan demo'),links)
+      actions.append(details)
+      for (const content of [business,location,website,publicContacts,element('span',score(lead) + '/100','score'),actions]) {
+        row.insertCell().append(content)
+      }
+    }
+    $('cards').append(table)
   }
   $('feedback').textContent = view === 'saved' ? leads.length + ' prospek tersimpan di browser.' : leads.length ? leads.length + (leads[0].source ? ' bisnis dari OpenStreetMap.' : ' bisnis contoh.') : 'Belum ada hasil.'
 }
@@ -207,6 +239,17 @@ const overpassEndpoints = [
   'https://overpass.private.coffee/api/interpreter',
   'https://overpass-api.de/api/interpreter'
 ]
+$('chooseOffline').onclick = () => $('baliSnapshot').click()
+function updateOfflineSelection() {
+  const file = $('baliSnapshot').files[0]
+  $('offlineName').textContent = file ? file.name : ''
+  $('clearOffline').hidden = !file
+}
+$('baliSnapshot').onchange = updateOfflineSelection
+$('clearOffline').onclick = () => {
+  $('baliSnapshot').value = ''
+  updateOfflineSelection()
+}
 async function readBaliSnapshot(tag, values) {
   const file = $('baliSnapshot').files[0]
   if (!file) return null
