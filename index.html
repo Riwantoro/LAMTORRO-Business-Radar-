@@ -13,6 +13,7 @@
 <label id="country" hidden>Negara<input name="country" maxlength="80" placeholder="Australia"></label>
 <label>Industri<select id="industry" name="industry"></select></label><button type="submit" id="searchButton">Cari bisnis</button></form>
 <nav><button id="discover" aria-pressed="true">Hasil</button><button id="saved" aria-pressed="false">Prospek tersimpan</button><button id="examples">Data contoh</button><label><span><input type="checkbox" id="priority" checked> Urutkan prioritas</span></label></nav>
+<div id="offlinePanel"><label>Data Bali offline<input type="file" id="baliSnapshot" accept=".json,application/json"></label></div>
 <p id="feedback" role="status">Pilih industri untuk mulai mencari di Bali.</p><div id="cards"></div>
 <footer>Data © <a href="https://www.openstreetmap.org/copyright">kontributor OpenStreetMap</a>. Kontak dan cakupan bergantung pada data sumber.</footer>
 </main>
@@ -206,22 +207,34 @@ const overpassEndpoints = [
   'https://overpass.private.coffee/api/interpreter',
   'https://overpass-api.de/api/interpreter'
 ]
+async function readBaliSnapshot(tag, values) {
+  const file = $('baliSnapshot').files[0]
+  if (!file) return null
+  const data = JSON.parse(await file.text())
+  if (!Array.isArray(data.elements)) throw Error('Berkas data Bali tidak valid.')
+  const accepted = new Set(values.split('|'))
+  const unique = new Map()
+  for (const item of data.elements) {
+    if (!['node','way','relation'].includes(item?.type) || !Number.isSafeInteger(item.id)
+        || typeof item.tags?.name !== 'string' || !accepted.has(item.tags[tag])) continue
+    unique.set(item.type + ':' + item.id, item)
+  }
+  return {elements: [...unique.values()], offline: true}
+}
+$('scope').addEventListener('change', () => { $('offlinePanel').hidden = $('scope').value !== 'bali' })
 async function searchOverpass(query, id) {
   for (const [index, endpoint] of overpassEndpoints.entries()) {
     if (id !== searchId) return null
     if (index) $('feedback').textContent = 'Mencoba server OpenStreetMap cadangan…'
     try {
-      const data = await fetchJson(endpoint, 22000, {
-        method: 'POST',
-        body: new URLSearchParams({data: query})
-      })
+      const data = await fetchJson(endpoint + '?' + new URLSearchParams({data: query}), 22000)
       if (!Array.isArray(data.elements) || data.remark) throw Error('Respons Overpass tidak lengkap')
       return data
     } catch (error) {
       console.warn('Pencarian Overpass gagal', endpoint, error)
     }
   }
-  throw Error('Server pencarian OpenStreetMap sedang tidak dapat dihubungi. Coba lagi beberapa saat.')
+  throw Error('Server pencarian OpenStreetMap sedang tidak dapat dihubungi. Untuk Bali, pilih berkas data offline lalu klik Cari bisnis.')
 }
 const placeCache = new Map()
 async function cityArea(city,country) {
@@ -251,11 +264,14 @@ $('search').onsubmit = async event => {
     const area = bali ? 'area["ISO3166-2"="ID-BA"]["boundary"="administrative"]' : 'area(' + await cityArea(city,country) + ')'
     const [tag,values] = industries[data.industry]
     const query = '[out:json][timeout:20];' + area + '->.region;nwr(area.region)["name"]["' + tag + '"~"^(' + values + ')$"];out center 1200;'
-    const found = await searchOverpass(query, id)
+    const snapshot = bali ? await readBaliSnapshot(tag, values) : null
+    if (id !== searchId) return
+    const found = snapshot || await searchOverpass(query, id)
     if (id !== searchId) return
     results = found.elements.filter(item => item.tags?.name).map(item => fromOSM(item,data.industry,bali ? 'Bali, Indonesia' : city + ', ' + country))
     render()
-    if (results.length === 1200) $('feedback').textContent += ' Batas 1.200 hasil tercapai.'
+    if (found.offline) $('feedback').textContent = results.length + ' bisnis dari berkas OpenStreetMap Bali yang dipilih.'
+    else if (results.length === 1200) $('feedback').textContent += ' Batas 1.200 hasil tercapai.'
   } catch (error) {
     if (id === searchId) $('feedback').textContent = 'Pencarian gagal. ' + (error.name === 'TimeoutError' || error instanceof TypeError ? 'Layanan pencarian lokasi belum merespons. Coba lagi beberapa saat.' : error.message)
   } finally { $('searchButton').disabled = false }
